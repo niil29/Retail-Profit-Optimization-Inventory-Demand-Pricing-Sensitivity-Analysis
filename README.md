@@ -145,13 +145,15 @@ This project demonstrates how operational analysis can evolve into decision-focu
 - `readme.md`
 - `sql` -
 - `sql/01_stagging`
-- `sql/02_dim_&_fact_transformation.sql`
-- `sql/03_profitability_view.sql`
-- `Airline_Profitability_&_Cost_Driver_Analytics_v1`
-- `screenshot` -
-- `screenshot/01_Profitability_Deep_Dive`
-- `screenshot/02_Cost_Drivers_&_Efficiency`
-- `screenshot/03_Network_Performence_Route_Carrier`
+- `sql/02_star_schema.sql`
+- `sql/03_analytical_view.sql`
+
+- `power-bi` -
+- `01_Executive_Overview`
+- `02_Inventory_Turnover_&_DIO`
+- `03_Demand_&_Forecast_Behavior`
+- `04_What-if_Stress_Simulation`
+- `Inventory_Demand_Profitability_Analytics.pbix`
 
 
 ---
