@@ -157,7 +157,7 @@ This project demonstrates how operational analysis can evolve into decision-focu
 ---
 
 ## 👤 Author
-
+**Indranil Mukherjee** 
 Data Analyst | SQL | Power BI | Business Modeling  
 
 Focused on transforming data into structured decision frameworks.
