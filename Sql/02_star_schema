@@ -1,0 +1,218 @@
+
+-- CREATE DIMENSION TABLE: dim_date AND INSERT VALUES
+
+DROP TABLE IF EXISTS dim_date;
+GO
+
+CREATE TABLE dim_date (
+	date_key INT PRIMARY KEY,  -- YYYYMMDD format
+	date DATE NOT NULL,
+	day INT,
+	day_name VARCHAR(10),
+	day_of_week INT,	-- 1 = monday, 2 = tuesday, ..., 7 = sunday
+	week_of_year INT,
+	month INT,
+	month_name VARCHAR(20),
+	quarter INT,
+	year INT,
+	is_weekend INT		-- 0/1
+)
+
+TRUNCATE TABLE dim_date;
+GO
+
+DECLARE @start_date DATE = '2018-01-01';
+DECLARE @end_date DATE = '2030-12-31';
+
+WITH calendar AS (
+	SELECT @start_date AS date
+	UNION ALL
+	SELECT DATEADD(DAY, 1, date)
+	FROM calendar
+	WHERE date < @end_date
+)
+INSERT INTO dim_date (
+	date_key, 
+	date, 
+	day, 
+	day_name, 
+	day_of_week, 
+	week_of_year, 
+	month, 
+	month_name, 
+	quarter, 
+	year, 
+	is_weekend
+	)
+	SELECT CAST(FORMAT(date, 'yyyyMMdd') AS INT) AS date_key,
+		date,
+		DAY(date) AS day,
+		DATENAME(WEEKDAY, date) AS day_name,
+		DATEPART(WEEKDAY, date) AS day_of_week,
+		DATEPART(WEEK, date) AS week_of_year,
+		MONTH(date) AS month,
+		DATENAME(MONTH, date) AS month_name,
+		DATEPART(QUARTER, date) AS quarter,
+		YEAR(date) AS year,
+		CASE 
+			WHEN DATEPART(WEEKDAY, date) IN (1, 7) THEN 1
+			ELSE 0
+		END AS is_weekend
+	FROM calendar
+
+	OPTION (MAXRECURSION 32767);
+
+	SELECT TOP 50 *
+	FROM dim_date;
+
+SELECT MAX(date) AS max_date, MIN(date) AS min_date
+FROM dim_date;
+
+-- CREAT DIMENSION TABLE: dim_store AND INSERT VALUES
+
+DROP TABLE IF EXISTS dim_store;
+GO
+
+CREATE TABLE dim_store (
+	store_id VARCHAR(50) PRIMARY KEY
+);
+
+TRUNCATE TABLE dim_store;
+GO
+
+INSERT INTO dim_store (store_id)
+SELECT DISTINCT Store_ID
+FROM stg_retail_store_inventory
+;
+
+
+-- CREATE DIMENSION TABLE: dim_product AND INSERT VALUES
+DROP TABLE IF EXISTS dim_product;
+
+CREATE TABLE dim_product (
+	product_id VARCHAR(20) PRIMARY KEY,
+	category VARCHAR(50)
+);
+
+TRUNCATE TABLE dim_product;
+
+WITH product_category_ranked AS (
+    SELECT
+        product_id,
+        category,
+        COUNT(*) AS occurrence_count,
+        ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY COUNT(*) DESC) AS rn
+    FROM stg_retail_store_inventory
+    GROUP BY product_id, category
+)
+
+INSERT INTO dim_product (product_id, category)
+SELECT
+    product_id,
+    category
+FROM product_category_ranked
+WHERE rn = 1;
+
+SELECT *
+FROM dim_product
+;
+
+SELECT *
+FROM stg_retail_store_inventory
+
+-- CREATE FACT TABLE: fact_inventory_sales_daily AND INSERT VALUES
+DROP TABLE IF EXISTS fact_inventory_sales_daily;
+GO
+
+CREATE TABLE fact_inventory_sales_daily (
+	date_key INT,
+	store_id VARCHAR(50),
+	product_id VARCHAR(20),
+
+	inventory_opening_units INT,
+	units_sold INT,
+	units_ordered INT,
+	demand_forecast_units DECIMAL(18, 2),
+
+	list_price DECIMAL(18, 2),
+	discount DECIMAL(18, 2),
+	competitor_pricing DECIMAL(18, 2),
+
+	region VARCHAR(50),
+	weather_condition VARCHAR(50),
+	holiday_promotion_flag INT,
+	seasonality VARCHAR(50),
+
+	CONSTRAINT PK_fact_inventory_sales_daily PRIMARY KEY (date_key, store_id, product_id)
+)
+;
+
+TRUNCATE TABLE fact_inventory_sales_daily;
+GO
+
+INSERT INTO fact_inventory_sales_daily (
+	date_key,
+	store_id,
+	product_id,
+	inventory_opening_units,
+	units_sold,
+	units_ordered,
+	demand_forecast_units,
+	list_price,
+	discount,
+	competitor_pricing,
+	region,
+	weather_condition,
+	holiday_promotion_flag,
+	seasonality
+)
+SELECT
+	date_key,
+	store_id,
+	product_id,
+	inventory_opening_units,
+	units_sold,
+	units_ordered,
+	demand_forecast,
+	list_price,
+	discount,
+	competitor_pricing,
+	region,
+	weather_condition,
+	holiday_promotion_flag,
+	seasonality
+FROM stg_retail_store_inventory
+;
+
+
+-- ROW COUNT CHECKS
+SELECT COUNT(*) FROM stg_retail_store_inventory;
+SELECT COUNT(*) FROM fact_inventory_sales_daily;
+
+
+-- GRAIN VALIDATION CHECK
+
+SELECT COUNT (*) - COUNT (DISTINCT CONCAT(date_key, store_id, product_id)) AS duplicate_records
+FROM fact_inventory_sales_daily
+;
+
+-- FOREIGN KEY CHECKS
+
+SELECT COUNT(*)
+FROM fact_inventory_sales_daily f
+LEFT JOIN dim_date d 
+ON f.date_key = d.date_key
+WHERE d.date_key IS NULL
+
+SELECT COUNT(*)
+FROM fact_inventory_sales_daily f
+LEFT JOIN dim_store s 
+ON f.store_id = s.store_id
+WHERE s.store_id IS NULL
+
+SELECT COUNT(*)
+FROM fact_inventory_sales_daily f
+LEFT JOIN dim_product p 
+ON f.product_id = p.product_id
+WHERE p.product_id IS NULL
+
