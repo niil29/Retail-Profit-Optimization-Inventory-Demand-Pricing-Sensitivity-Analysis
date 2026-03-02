@@ -1,0 +1,100 @@
+/* SINCE COGS % IS CATEGORY SPECIFIC, BELOW ASSUMPTIONS ARE MADE BEFOR CREATING THE ANALYTIC VIEW:
+
+		Groceries → 0.80
+
+		Electronics → 0.70
+
+		Clothing → 0.60
+
+		Furniture → 0.65
+
+		Toys → 0.75
+
+*/
+
+
+-- CREATE THE ANALYTIC VIEW: vw_inventory_profit_analysis_view
+
+CREATE OR ALTER VIEW vw_inventory_profit_analysis_view AS
+SELECT 
+	f.date_key,
+	f.store_id,
+	f.product_id,
+
+	f.inventory_opening_units,
+	f.units_sold,
+	f.units_ordered,
+	f.demand_forecast_units,
+	-- Derived inventory closing units
+	(f.inventory_opening_units - f.units_sold + f.units_ordered) AS inventory_closing_units,
+
+	f.list_price,
+	f.discount,
+	-- Derived net selling price
+	(f.list_price - f.discount) AS net_selling_price,
+	
+	-- Derived revenue
+	(f.units_sold * (f.list_price - f.discount)) AS revenue,
+
+	-- Estimated COGS based on category-specific assumptions
+	CASE WHEN p.category = 'Groceries' THEN 0.80
+			 WHEN p.category = 'Electronics' THEN 0.70
+			 WHEN p.category = 'Clothing' THEN 0.60
+			 WHEN p.category = 'Furniture' THEN 0.65
+			 WHEN p.category = 'Toys' THEN 0.75
+			 ELSE 0.70 
+		END AS estimated_cogs_percentage,
+
+	(f.units_sold * (f.list_price - f.discount)) *
+		CASE WHEN p.category = 'Groceries' THEN 0.80
+			 WHEN p.category = 'Electronics' THEN 0.70
+			 WHEN p.category = 'Clothing' THEN 0.60
+			 WHEN p.category = 'Furniture' THEN 0.65
+			 WHEN p.category = 'Toys' THEN 0.75
+			 ELSE 0.70 
+		END AS estimated_cogs,
+
+	-- Derived gross profit
+	(f.units_sold * (f.list_price - f.discount)) - 
+	
+	(f.units_sold * (f.list_price - f.discount)) *
+		CASE WHEN p.category = 'Groceries' THEN 0.80
+			 WHEN p.category = 'Electronics' THEN 0.70
+			 WHEN p.category = 'Clothing' THEN 0.60
+			 WHEN p.category = 'Furniture' THEN 0.65
+			 WHEN p.category = 'Toys' THEN 0.75
+			 ELSE 0 
+		END AS gross_profit,
+	
+	-- Stockout flag
+	CASE WHEN f.inventory_opening_units = 0 THEN 1 
+		ELSE 0 END AS stockout_flag,
+
+	-- Lost sales proxy
+	CASE WHEN f.inventory_opening_units = 0 THEN f.demand_forecast_units
+		ELSE 0 END AS lost_sales_units,
+
+	-- Contextual attributes
+	f.competitor_pricing,
+	f.region,
+	f.weather_condition,
+	f.holiday_promotion_flag,
+	f.seasonality
+
+FROM fact_inventory_sales_daily f
+JOIN dim_product p
+ON f.product_id = p.product_id
+;
+
+-- TEST THE VIEW
+
+SELECT TOP 100 * 
+FROM vw_inventory_profit_analysis_view
+;
+
+SELECT SUM(revenue) AS total_revenue,
+	   SUM(estimated_cogs) AS total_estimated_cogs,
+	   SUM(gross_profit) AS total_gross_profit
+FROM vw_inventory_profit_analysis_view
+;
+
