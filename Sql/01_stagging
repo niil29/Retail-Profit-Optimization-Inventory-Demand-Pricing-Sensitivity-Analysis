@@ -1,0 +1,248 @@
+-- CREATE NEW DATABASE InventoryDemandProfitAnalysis
+
+CREATE DATABASE InventoryDemandProfitAnalysis;
+GO
+
+USE InventoryDemandProfitAnalysis;
+GO
+
+-- IMPORT RAW DATA INTO raw_retail_store_inventory TABLE VIA SSMS IMPORT WIZARD
+
+-- EXPLORE RAW DATA AFTER IMPORTING DATA VIA SSMS IMPORT WIZARD
+
+ SELECT TOP 50 *
+ FROM raw_retail_store_inventory
+ ;
+
+ SELECT COUNT(*) AS Total_records
+ FROM raw_retail_store_inventory
+ ;
+
+ SELECT MAX(Date) AS max_date,
+ 		MIN(Date) AS min_date   
+ FROM raw_retail_store_inventory
+ ;
+
+ SELECT DISTINCT Product_ID 
+ FROM raw_retail_store_inventory
+ ORDER BY Product_ID ASC;
+
+ SELECT DISTINCT Store_ID 
+ FROM raw_retail_store_inventory
+ ORDER BY Store_ID ASC;
+
+ SELECT DISTINCT Category 
+ FROM raw_retail_store_inventory
+ ORDER BY Category ASC;
+
+
+ SELECT *
+ FROM raw_retail_store_inventory
+ WHERE Inventory_Level < 0
+    OR Units_Sold < 0
+    OR Units_Ordered < 0
+
+ SELECT *
+ FROM raw_retail_store_inventory
+ WHERE --Demand_Forecast < 0
+     Price < 0
+    OR Discount < 0
+    OR Competitor_Pricing < 0
+;
+
+ -- CREATE STAGGING TABLE stg_retail_store_inventory
+DROP TABLE IF EXISTS stg_retail_store_inventory;
+GO
+
+CREATE TABLE stg_retail_store_inventory
+(
+	Date						DATE,
+	Date_key					INT,   --YYYYMMDD
+	Store_id					VARCHAR(20),
+	Product_id					VARCHAR(20),
+	Category					VARCHAR(50),
+	Region						VARCHAR(50),
+	
+	Inventory_opening_units 	INT,
+	Units_sold					INT,
+	Units_ordered				INT,
+
+	Demand_forecast				DECIMAL(10,2),
+	
+	List_Price					DECIMAL(10,2),
+	Discount					DECIMAL(10,2),
+	Net_selling_price			DECIMAL(10,2),
+
+	Weather_condition			VARCHAR(50),
+	Holiday_Promotion_flag		INT,    -- 0/1
+	Competitor_pricing			DECIMAL(10,2),
+	Seasonality					VARCHAR(50),
+
+	Source_system				VARCHAR(50),
+	Load_date					DATE	
+)
+
+-- INSERT DATA INTO STAGGING TABLE stg_retail_store_inventory FROM RAW TABLE raw_retail_store_inventory
+
+TRUNCATE TABLE stg_retail_store_inventory;
+GO
+
+INSERT INTO stg_retail_store_inventory
+(
+	Date,
+	Date_key,
+	Store_id,
+	Product_id,
+	Category,
+	Region,
+	
+	Inventory_opening_units,
+	Units_sold,
+	Units_ordered,
+	Demand_forecast,
+	
+	List_Price,
+	Discount,
+	Net_selling_price,
+	Weather_condition,
+	Holiday_Promotion_flag,
+	Competitor_pricing,
+	Seasonality,
+	Source_system,
+	Load_date
+)
+	SELECT 
+	CAST(Date AS DATE) AS Date,
+	CAST(FORMAT(Date, 'yyyyMMdd') AS INT) AS Date_key,
+	Store_ID,
+	Product_ID,
+	Category,
+	Region,
+	
+	CASE WHEN Inventory_Level < 0 OR Inventory_Level IS NULL THEN 0
+		ELSE Inventory_Level 
+		END AS Inventory_opening_units,
+
+	CASE WHEN Units_Sold < 0 OR Units_Sold IS NULL THEN 0
+		ELSE Units_Sold
+		END AS Units_sold,
+
+	CASE WHEN Units_Ordered < 0 OR Units_Ordered IS NULL THEN 0
+		ELSE Units_Ordered 
+		END AS Units_orderd,
+
+	Demand_Forecast AS Demand_forecast,
+	
+	Price AS List_Price,
+
+	ISNULL(Discount,0) AS Discount,
+
+	CASE WHEN ISNULL(Discount,0) > Price THEN 0
+		ELSE (Price - ISNULL(Discount,0))
+		END AS Net_Selling_Price,
+	
+	Weather_Condition AS Weather_Condition,
+	
+	ISNULL(Holiday_Promotion, 0) AS holiday_promotion_flag,
+	Competitor_Pricing,
+	Seasonality,
+
+	'Raw_Retail_Store_Inventory' AS Source_system,
+	GETDATE() AS Load_date
+	FROM raw_retail_store_inventory
+	;
+
+
+	-- VALIDATE DATA IN STAGGING TABLE stg_retail_store_inventory
+	
+
+	SELECT TOP 50 *
+	FROM stg_retail_store_inventory
+	;
+
+	-- COUNT ROWS
+
+	SELECT COUNT(*) AS Total_records
+	FROM stg_retail_store_inventory
+	;
+
+	-- CHECK FOR DUPLICATE RECORDS BASED ON Date, Product_id, Store_id
+
+	SELECT Date,
+			Product_id,
+			Store_id,
+			COUNT(*) AS row_count
+	FROM stg_retail_store_inventory
+	GROUP BY Date,
+				Product_id,
+				Store_id
+	HAVING COUNT(*) > 1
+	;
+
+	-- NULL CHECKS FOR INVENTORY
+
+	SELECT COUNT(*) AS Null_inventory_records
+	FROM stg_retail_store_inventory
+	WHERE Inventory_opening_units IS NULL
+		OR Inventory_opening_units < 0
+		OR Units_sold IS NULL
+		OR Units_sold < 0
+		OR Units_ordered IS NULL
+		OR Units_ordered < 0
+		;
+
+	-- NULL CHECKS FOR PRICING
+
+	SELECT COUNT(*) AS Null_pricing_records
+	FROM stg_retail_store_inventory
+	WHERE List_Price IS NULL
+		OR List_Price < 0
+		OR Discount IS NULL
+		OR Discount < 0
+		OR Net_selling_price IS NULL
+
+		;
+
+	-- NET_SELLING_PRICE CALCULATION CHECK
+
+	SELECT COUNT(*) AS Pricing_mismatch_records
+	FROM stg_retail_store_inventory
+	WHERE Net_selling_price <> (List_Price - ISNULL(Discount,0))
+		;
+
+	-- HOLIDAY_PROMOTION_FLAG CHECK
+
+	SELECT Holiday_Promotion_flag, COUNT(*) AS row_count
+	FROM stg_retail_store_inventory
+	GROUP BY Holiday_Promotion_flag
+	;
+
+	-- DATE KEY INTEGRITY CHECK
+
+	SELECT COUNT(*) AS Datekey_mismatch_records
+	FROM stg_retail_store_inventory
+	WHERE Date_key <> CAST(FORMAT(Date, 'yyyyMMdd') AS INT)
+	;
+
+	-- LOGICAL CHECKS
+
+	SELECT COUNT(*) AS Logical_issue_records
+	FROM stg_retail_store_inventory
+	WHERE Units_sold > Inventory_opening_units + Units_ordered
+	;
+
+	-- NEGETIVE SELLING PRICE CHECK
+
+	SELECT COUNT(*) AS Negative_selling_price_records
+	FROM stg_retail_store_inventory
+	WHERE Net_selling_price < 0
+
+
+	-- DISTINCT COUNT CHECKS
+
+	SELECT COUNT(DISTINCT Product_id) AS Distinct_product_count,
+			COUNT(DISTINCT Store_id) AS Distinct_store_count,
+			COUNT(DISTINCT Category) AS Distinct_category_count,
+			COUNT(DISTINCT Region) AS Distinct_region_count
+	FROM stg_retail_store_inventory
+	;
